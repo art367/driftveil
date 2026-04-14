@@ -3,23 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Driftveil — A Sleep Game</title>
+<title>Drift & Flow — A Sleep Game</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: none; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: none; touch-action: none; }
   canvas { display: block; position: fixed; top: 0; left: 0; }
   #start-overlay {
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: radial-gradient(ellipse at center, #0a1628 0%, #000 100%);
     display: flex; flex-direction: column; align-items: center; justify-content: center;
-    z-index: 100; transition: opacity 2s ease-out;
+    z-index: 100; transition: opacity 3s ease-out;
     font-family: 'Georgia', serif; color: rgba(180, 200, 230, 0.7);
   }
   #start-overlay h1 {
-    font-size: 3em; font-weight: 300; letter-spacing: 0.3em;
-    margin-bottom: 0.5em; opacity: 0;
+    font-size: 2.8em; font-weight: 300; letter-spacing: 0.35em;
+    margin-bottom: 0.3em; opacity: 0;
     animation: fadeIn 3s ease-out 0.5s forwards;
     color: rgba(160, 190, 230, 0.6);
+  }
+  #start-overlay .ampersand {
+    color: rgba(100, 200, 220, 0.5);
+    font-style: italic;
   }
   #start-overlay p {
     font-size: 1.1em; letter-spacing: 0.15em; opacity: 0;
@@ -31,46 +35,53 @@
     animation: fadeIn 3s ease-out 3.5s forwards, pulse 4s ease-in-out 3.5s infinite;
     color: rgba(120, 160, 200, 0.3);
   }
+  #start-overlay .headphones {
+    margin-top: 1.5em; font-size: 0.75em; opacity: 0;
+    animation: fadeIn 3s ease-out 4.5s forwards;
+    color: rgba(120, 160, 200, 0.25);
+  }
   @keyframes fadeIn { to { opacity: 1; } }
   @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 0.6; } }
 </style>
 </head>
 <body>
 <div id="start-overlay">
-  <h1>DRIFTVEIL</h1>
-  <p>a place to let go</p>
+  <h1>DRIFT <span class="ampersand">&</span> FLOW</h1>
+  <p>let everything go</p>
   <p class="tap-hint">touch anywhere to begin</p>
+  <p class="headphones">🎧 headphones recommended</p>
 </div>
 <canvas id="c"></canvas>
 <script>
-// ─── CONFIG ───
-const CFG = {
-  particleCount: 120,
-  trailLength: 18,
-  breathCycleSec: 6,       // initial breath cycle
-  breathSlowRate: 0.0003,  // how much breath slows per frame
-  maxBreathCycle: 12,
-  fadeStartMin: 3,         // minutes before world starts dimming
-  fullFadeMin: 15,         // minutes to reach near-darkness
-  inactivityFadeSec: 30,   // seconds of no input before auto-dim
-  cursorGlow: 80,
-  driftSpeed: 0.15,
-  colors: {
-    bg1: [8, 16, 38],
-    bg2: [2, 4, 12],
-    particle: [130, 180, 255],
-    accent: [100, 200, 220],
-    warm: [180, 140, 255],
-  }
-};
+// ═══════════════════════════════════════════
+//  DRIFT & FLOW — A Sleep Game
+// ═══════════════════════════════════════════
 
-// ─── STATE ───
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let W, H;
+
+// ─── CONFIG ───
+const CFG = {
+  particleCount: 100,
+  jellyfishCount: 7,
+  trailLength: 22,
+  breathCycleSec: 6,
+  breathSlowRate: 0.0004,
+  maxBreathCycle: 12,
+  fadeStartMin: 4,
+  fullFadeMin: 20,
+  inactivityFadeSec: 40,
+  cursorGlow: 100,
+  driftSpeed: 0.12,
+};
+
+// ─── STATE ───
 let mouse = { x: -1000, y: -1000, active: false };
 let mouseTrail = [];
 let particles = [];
+let jellyfish = [];
+let ripples = [];
 let startTime = 0;
 let lastInteraction = 0;
 let breathPhase = 0;
@@ -78,6 +89,7 @@ let breathCycle = CFG.breathCycleSec;
 let globalDim = 1;
 let started = false;
 let audioCtx = null;
+let depthProgress = 0; // 0 = surface, 1 = deep
 
 function resize() {
   W = canvas.width = window.innerWidth;
@@ -86,118 +98,409 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// ─── PARTICLES ───
+// ═══════════════════════════════════════════
+//  JELLYFISH
+// ═══════════════════════════════════════════
+class Jellyfish {
+  constructor() { this.reset(true); }
+  reset(initial) {
+    this.x = Math.random() * W;
+    this.y = initial ? Math.random() * H : H + 100;
+    this.size = 25 + Math.random() * 40;
+    this.vx = (Math.random() - 0.5) * 0.15;
+    this.vy = -(0.08 + Math.random() * 0.15);
+    this.pulsePhase = Math.random() * Math.PI * 2;
+    this.pulseSpeed = 0.015 + Math.random() * 0.01;
+    this.tentacleCount = 5 + Math.floor(Math.random() * 4);
+    this.hue = 180 + Math.random() * 60; // cyan to purple
+    this.alpha = 0.15 + Math.random() * 0.25;
+    this.glowIntensity = 0.3 + Math.random() * 0.4;
+    this.wobble = Math.random() * Math.PI * 2;
+    this.wobbleSpeed = 0.008 + Math.random() * 0.006;
+  }
+  update(breathVal) {
+    // gentle upward drift with wobble
+    this.wobble += this.wobbleSpeed;
+    this.x += this.vx + Math.sin(this.wobble) * 0.3;
+    this.y += this.vy;
+    this.pulsePhase += this.pulseSpeed;
+
+    // mouse interaction — gentle push away
+    if (mouse.active) {
+      const dx = this.x - mouse.x;
+      const dy = this.y - mouse.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 200) {
+        const force = (1 - dist / 200) * 0.3;
+        this.vx += dx / dist * force;
+        this.vy += dy / dist * force;
+      }
+    }
+
+    // friction
+    this.vx *= 0.998;
+    this.vy *= 0.998;
+    // keep drifting up
+    this.vy = Math.min(this.vy, -0.03);
+
+    // wrap
+    if (this.y < -this.size * 3) this.reset(false);
+    if (this.x < -100) this.x = W + 100;
+    if (this.x > W + 100) this.x = -100;
+  }
+  draw() {
+    const pulse = Math.sin(this.pulsePhase) * 0.5 + 0.5;
+    const s = this.size * (0.85 + pulse * 0.15);
+    const a = this.alpha * globalDim;
+    if (a < 0.01) return;
+
+    ctx.save();
+    ctx.translate(this.x, this.y);
+
+    // glow
+    const glowR = s * 2.5;
+    const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, glowR);
+    glow.addColorStop(0, `hsla(${this.hue}, 80%, 70%, ${a * this.glowIntensity * 0.3})`);
+    glow.addColorStop(1, `hsla(${this.hue}, 80%, 50%, 0)`);
+    ctx.beginPath();
+    ctx.arc(0, 0, glowR, 0, Math.PI * 2);
+    ctx.fillStyle = glow;
+    ctx.fill();
+
+    // bell (dome)
+    ctx.beginPath();
+    ctx.ellipse(0, 0, s * 0.7, s * (0.45 + pulse * 0.1), 0, Math.PI, 0);
+    // bottom curve of bell
+    ctx.quadraticCurveTo(s * 0.7, s * 0.15, s * 0.3, s * 0.3);
+    ctx.quadraticCurveTo(0, s * (0.35 + pulse * 0.05), -s * 0.3, s * 0.3);
+    ctx.quadraticCurveTo(-s * 0.7, s * 0.15, -s * 0.7, 0);
+    ctx.closePath();
+
+    const bellGrad = ctx.createRadialGradient(0, -s * 0.1, 0, 0, 0, s);
+    bellGrad.addColorStop(0, `hsla(${this.hue}, 90%, 80%, ${a * 0.6})`);
+    bellGrad.addColorStop(0.5, `hsla(${this.hue}, 80%, 60%, ${a * 0.3})`);
+    bellGrad.addColorStop(1, `hsla(${this.hue}, 70%, 40%, ${a * 0.1})`);
+    ctx.fillStyle = bellGrad;
+    ctx.fill();
+
+    // inner glow spot
+    ctx.beginPath();
+    ctx.ellipse(0, -s * 0.1, s * 0.25, s * 0.15, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `hsla(${this.hue}, 100%, 90%, ${a * 0.3 * (0.5 + pulse * 0.5)})`;
+    ctx.fill();
+
+    // tentacles
+    for (let i = 0; i < this.tentacleCount; i++) {
+      const tx = (i / (this.tentacleCount - 1) - 0.5) * s * 1.0;
+      const tentLen = s * (0.8 + Math.random() * 0.4);
+      ctx.beginPath();
+      ctx.moveTo(tx, s * 0.25);
+      const wave = Math.sin(this.pulsePhase + i * 0.8) * s * 0.15;
+      const wave2 = Math.sin(this.pulsePhase * 0.7 + i * 1.2) * s * 0.1;
+      ctx.quadraticCurveTo(
+        tx + wave, s * 0.25 + tentLen * 0.5,
+        tx + wave + wave2, s * 0.25 + tentLen
+      );
+      ctx.strokeStyle = `hsla(${this.hue}, 80%, 75%, ${a * 0.4 * (0.6 + pulse * 0.4)})`;
+      ctx.lineWidth = 1 + Math.random() * 0.5;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+
+      // tiny dots on tentacles
+      if (Math.random() > 0.7) {
+        const dotY = s * 0.25 + tentLen * (0.3 + Math.random() * 0.5);
+        ctx.beginPath();
+        ctx.arc(tx + wave * 0.5, dotY, 1.5, 0, Math.PI * 2);
+        ctx.fillStyle = `hsla(${this.hue}, 100%, 85%, ${a * 0.5 * pulse})`;
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+}
+
+// ═══════════════════════════════════════════
+//  PARTICLES
+// ═══════════════════════════════════════════
 class Particle {
   constructor() { this.reset(); }
   reset() {
     this.x = Math.random() * W;
     this.y = Math.random() * H;
-    this.baseSize = 1 + Math.random() * 3;
+    this.baseSize = 0.8 + Math.random() * 2.5;
     this.size = this.baseSize;
     this.vx = (Math.random() - 0.5) * CFG.driftSpeed;
-    this.vy = (Math.random() - 0.5) * CFG.driftSpeed - 0.05;
-    this.alpha = 0.1 + Math.random() * 0.4;
+    this.vy = (Math.random() - 0.5) * CFG.driftSpeed - 0.03;
+    this.alpha = 0.1 + Math.random() * 0.35;
     this.baseAlpha = this.alpha;
     this.pulseOffset = Math.random() * Math.PI * 2;
-    this.pulseSpeed = 0.005 + Math.random() * 0.01;
     this.colorType = Math.random();
-    this.trail = [];
   }
   getColor(a) {
-    let c;
-    if (this.colorType < 0.5) c = CFG.colors.particle;
-    else if (this.colorType < 0.8) c = CFG.colors.accent;
-    else c = CFG.colors.warm;
-    return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+    const dp = depthProgress;
+    let r, g, b;
+    if (this.colorType < 0.4) { r = 100+dp*30; g = 180-dp*40; b = 255; }
+    else if (this.colorType < 0.7) { r = 80; g = 200-dp*60; b = 220; }
+    else { r = 160+dp*20; g = 120-dp*40; b = 255; }
+    return `rgba(${r},${g},${b},${a})`;
   }
   update(breathVal) {
-    // gentle drift
     this.x += this.vx;
     this.y += this.vy;
-    // wrap
     if (this.x < -20) this.x = W + 20;
     if (this.x > W + 20) this.x = -20;
     if (this.y < -20) this.y = H + 20;
     if (this.y > H + 20) this.y = -20;
-
-    // mouse attraction (gentle)
     if (mouse.active) {
       const dx = mouse.x - this.x;
       const dy = mouse.y - this.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 250) {
-        const force = (1 - dist / 250) * 0.008;
+      if (dist < 200) {
+        const force = (1 - dist / 200) * 0.006;
         this.vx += dx * force;
         this.vy += dy * force;
       }
     }
-    // friction
-    this.vx *= 0.995;
-    this.vy *= 0.995;
-
-    // breathing pulse
+    this.vx *= 0.997;
+    this.vy *= 0.997;
     const pulse = Math.sin(breathPhase + this.pulseOffset) * 0.5 + 0.5;
-    this.size = this.baseSize * (0.7 + pulse * 0.6 + breathVal * 0.3);
-    this.alpha = this.baseAlpha * (0.5 + pulse * 0.5) * globalDim;
-
-    // trail
-    this.trail.push({ x: this.x, y: this.y, a: this.alpha * 0.3 });
-    if (this.trail.length > 6) this.trail.shift();
+    this.size = this.baseSize * (0.7 + pulse * 0.5 + breathVal * 0.2);
+    this.alpha = this.baseAlpha * (0.4 + pulse * 0.6) * globalDim;
   }
   draw() {
-    // trail
-    for (let i = 0; i < this.trail.length; i++) {
-      const t = this.trail[i];
-      const a = t.a * (i / this.trail.length) * 0.3 * globalDim;
-      ctx.beginPath();
-      ctx.arc(t.x, t.y, this.size * 0.5, 0, Math.PI * 2);
-      ctx.fillStyle = this.getColor(a);
-      ctx.fill();
-    }
-    // main
+    if (this.alpha < 0.005) return;
     ctx.beginPath();
     ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
     ctx.fillStyle = this.getColor(this.alpha);
     ctx.shadowColor = this.getColor(this.alpha * 0.5);
-    ctx.shadowBlur = this.size * 4;
+    ctx.shadowBlur = this.size * 5;
     ctx.fill();
     ctx.shadowBlur = 0;
   }
 }
 
-function initParticles() {
-  particles = [];
-  for (let i = 0; i < CFG.particleCount; i++) {
-    particles.push(new Particle());
+// ═══════════════════════════════════════════
+//  RIPPLES (touch feedback)
+// ═══════════════════════════════════════════
+class Ripple {
+  constructor(x, y) {
+    this.x = x; this.y = y;
+    this.radius = 5;
+    this.maxRadius = 80 + Math.random() * 40;
+    this.alpha = 0.3;
+    this.speed = 0.5 + Math.random() * 0.3;
+  }
+  update() {
+    this.radius += this.speed;
+    this.alpha *= 0.985;
+    return this.alpha > 0.005 && this.radius < this.maxRadius;
+  }
+  draw() {
+    const a = this.alpha * globalDim;
+    if (a < 0.005) return;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(120, 190, 255, ${a})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
   }
 }
 
-// ─── MOUSE TRAIL ───
+// ═══════════════════════════════════════════
+//  AUDIO ENGINE (much louder + richer)
+// ═══════════════════════════════════════════
+function initAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Master gain — LOUDER
+  const master = audioCtx.createGain();
+  master.gain.setValueAtTime(0, audioCtx.currentTime);
+  master.gain.linearRampToValueAtTime(0.6, audioCtx.currentTime + 5);
+  master.connect(audioCtx.destination);
+
+  // Compressor for warmth
+  const comp = audioCtx.createDynamicsCompressor();
+  comp.threshold.value = -20;
+  comp.ratio.value = 4;
+  comp.connect(master);
+
+  // Reverb (convolution-like via delay network)
+  const reverbGain = audioCtx.createGain();
+  reverbGain.gain.value = 0.3;
+  reverbGain.connect(comp);
+  for (let i = 0; i < 4; i++) {
+    const del = audioCtx.createDelay();
+    del.delayTime.value = 0.1 + i * 0.15;
+    const fb = audioCtx.createGain();
+    fb.gain.value = 0.2;
+    const filt = audioCtx.createBiquadFilter();
+    filt.type = 'lowpass';
+    filt.frequency.value = 800 - i * 100;
+    del.connect(filt);
+    filt.connect(fb);
+    fb.connect(del);
+    filt.connect(reverbGain);
+    del._input = del;
+    if (i === 0) master._reverb = del;
+  }
+
+  function makeDrone(freq, vol, type, detune, filterFreq) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.type = type || 'sine';
+    osc.frequency.value = freq;
+    osc.detune.value = detune || 0;
+    filter.type = 'lowpass';
+    filter.frequency.value = filterFreq || 500;
+    filter.Q.value = 0.7;
+    gain.gain.value = vol;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(comp);
+    // also send to reverb
+    const revSend = audioCtx.createGain();
+    revSend.gain.value = 0.15;
+    gain.connect(revSend);
+    if (master._reverb) revSend.connect(master._reverb);
+    osc.start();
+    // slow filter sweep
+    const lfo = audioCtx.createOscillator();
+    const lfoG = audioCtx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.02 + Math.random() * 0.04;
+    lfoG.gain.value = 150;
+    lfo.connect(lfoG);
+    lfoG.connect(filter.frequency);
+    lfo.start();
+    return { osc, gain };
+  }
+
+  // Rich drone pad — A minor ambient chord
+  makeDrone(55, 0.35, 'sine', 0, 400);       // A1
+  makeDrone(55.5, 0.2, 'sine', 5, 350);      // A1 slightly detuned (chorus)
+  makeDrone(82.4, 0.25, 'sine', -3, 500);    // E2
+  makeDrone(110, 0.2, 'sine', 2, 450);       // A2
+  makeDrone(130.8, 0.12, 'triangle', -4, 400); // C3
+  makeDrone(164.8, 0.1, 'sine', 3, 350);     // E3
+  makeDrone(220, 0.06, 'sine', -2, 300);     // A3
+
+  // Warm sub bass
+  makeDrone(36.7, 0.3, 'sine', 0, 200);      // D1 sub
+
+  // Ocean noise — louder and warmer
+  const bufferSize = audioCtx.sampleRate * 6;
+  const noiseBuffer = audioCtx.createBuffer(2, bufferSize, audioCtx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const data = noiseBuffer.getChannelData(ch);
+    let last = 0;
+    for (let i = 0; i < bufferSize; i++) {
+      // brown noise (warmer than white)
+      last = (last + (Math.random() * 2 - 1) * 0.02) * 0.998;
+      data[i] = last * 20;
+    }
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = noiseBuffer;
+  noise.loop = true;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = 'lowpass';
+  noiseFilter.frequency.value = 250;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0.25;
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(comp);
+  noise.start();
+
+  // Ocean wave LFO on noise volume
+  const waveLFO = audioCtx.createOscillator();
+  const waveLFOGain = audioCtx.createGain();
+  waveLFO.type = 'sine';
+  waveLFO.frequency.value = 0.07; // slow wave
+  waveLFOGain.gain.value = 0.1;
+  waveLFO.connect(waveLFOGain);
+  waveLFOGain.connect(noiseGain.gain);
+  waveLFO.start();
+
+  // Chime layer — occasional soft tones
+  function playChime() {
+    const freq = [261.6, 329.6, 392, 440, 523.3, 659.3][Math.floor(Math.random() * 6)];
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    filter.type = 'lowpass';
+    filter.frequency.value = 1000;
+    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.05 * globalDim, audioCtx.currentTime + 1);
+    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 6);
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(comp);
+    if (master._reverb) {
+      const chimeRev = audioCtx.createGain();
+      chimeRev.gain.value = 0.3;
+      gain.connect(chimeRev);
+      chimeRev.connect(master._reverb);
+    }
+    osc.start();
+    osc.stop(audioCtx.currentTime + 7);
+    // schedule next
+    setTimeout(playChime, 8000 + Math.random() * 15000);
+  }
+  setTimeout(playChime, 5000);
+
+  // Binaural beats — delta waves (2Hz) — louder
+  const binL = audioCtx.createOscillator();
+  const binR = audioCtx.createOscillator();
+  const binGainL = audioCtx.createGain();
+  const binGainR = audioCtx.createGain();
+  const merger = audioCtx.createChannelMerger(2);
+  binL.frequency.value = 100;
+  binR.frequency.value = 102;
+  binL.type = binR.type = 'sine';
+  binGainL.gain.value = 0.08;
+  binGainR.gain.value = 0.08;
+  binL.connect(binGainL);
+  binR.connect(binGainR);
+  binGainL.connect(merger, 0, 0);
+  binGainR.connect(merger, 0, 1);
+  merger.connect(master);
+  binL.start();
+  binR.start();
+}
+
+// ═══════════════════════════════════════════
+//  MOUSE TRAIL
+// ═══════════════════════════════════════════
 function drawMouseTrail() {
   if (mouseTrail.length < 2) return;
   for (let i = 1; i < mouseTrail.length; i++) {
     const p = mouseTrail[i];
     const prev = mouseTrail[i - 1];
     const t = i / mouseTrail.length;
-    const a = t * 0.4 * globalDim;
-    const w = t * 12;
+    const a = t * 0.35 * globalDim;
+    const w = t * 14;
     ctx.beginPath();
     ctx.moveTo(prev.x, prev.y);
     ctx.lineTo(p.x, p.y);
-    ctx.strokeStyle = `rgba(150, 200, 255, ${a})`;
+    ctx.strokeStyle = `rgba(130, 200, 255, ${a})`;
     ctx.lineWidth = w;
     ctx.lineCap = 'round';
     ctx.stroke();
-    // glow
-    ctx.strokeStyle = `rgba(100, 180, 255, ${a * 0.3})`;
-    ctx.lineWidth = w * 3;
+    ctx.strokeStyle = `rgba(80, 170, 255, ${a * 0.25})`;
+    ctx.lineWidth = w * 4;
     ctx.stroke();
   }
   // cursor glow
   if (mouse.active) {
     const g = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, CFG.cursorGlow);
-    g.addColorStop(0, `rgba(140, 190, 255, ${0.15 * globalDim})`);
-    g.addColorStop(1, 'rgba(140, 190, 255, 0)');
+    g.addColorStop(0, `rgba(120, 180, 255, ${0.12 * globalDim})`);
+    g.addColorStop(0.5, `rgba(100, 160, 240, ${0.04 * globalDim})`);
+    g.addColorStop(1, 'rgba(100, 160, 240, 0)');
     ctx.beginPath();
     ctx.arc(mouse.x, mouse.y, CFG.cursorGlow, 0, Math.PI * 2);
     ctx.fillStyle = g;
@@ -205,206 +508,154 @@ function drawMouseTrail() {
   }
 }
 
-// ─── BREATHING ORB ───
+// ═══════════════════════════════════════════
+//  BREATHING ORB
+// ═══════════════════════════════════════════
 function drawBreathingOrb(breathVal) {
-  const cx = W / 2;
-  const cy = H / 2;
-  const baseR = Math.min(W, H) * 0.12;
-  const r = baseR * (0.8 + breathVal * 0.4);
-  const a = (0.03 + breathVal * 0.04) * globalDim;
+  const cx = W / 2, cy = H / 2;
+  const baseR = Math.min(W, H) * 0.1;
+  const r = baseR * (0.75 + breathVal * 0.5);
+  const a = (0.025 + breathVal * 0.035) * globalDim;
 
+  // outer halo
+  const g2 = ctx.createRadialGradient(cx, cy, 0, cx, cy, r * 2.5);
+  g2.addColorStop(0, `rgba(80, 140, 220, ${a * 0.3})`);
+  g2.addColorStop(1, 'rgba(60, 100, 180, 0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 2.5, 0, Math.PI * 2);
+  ctx.fillStyle = g2;
+  ctx.fill();
+
+  // main orb
   const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
-  g.addColorStop(0, `rgba(100, 160, 230, ${a})`);
-  g.addColorStop(0.5, `rgba(80, 130, 200, ${a * 0.4})`);
+  g.addColorStop(0, `rgba(110, 170, 240, ${a * 1.2})`);
+  g.addColorStop(0.6, `rgba(80, 130, 200, ${a * 0.5})`);
   g.addColorStop(1, 'rgba(60, 100, 180, 0)');
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
   ctx.fillStyle = g;
   ctx.fill();
-
-  // outer ring
-  ctx.beginPath();
-  ctx.arc(cx, cy, r * 1.2, 0, Math.PI * 2);
-  ctx.strokeStyle = `rgba(120, 170, 240, ${a * 0.3})`;
-  ctx.lineWidth = 1;
-  ctx.stroke();
 }
 
-// ─── DEEP AMBIENT AUDIO (Web Audio API) ───
-function initAudio() {
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  const master = audioCtx.createGain();
-  master.gain.value = 0;
-  master.connect(audioCtx.destination);
-  // fade in
-  master.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime + 4);
+// ═══════════════════════════════════════════
+//  BACKGROUND with depth
+// ═══════════════════════════════════════════
+function drawBackground() {
+  // gradient shifts from dark blue to deeper darker as time passes
+  const dp = depthProgress;
+  const r1 = Math.round(8 - dp * 5);
+  const g1 = Math.round(16 - dp * 10);
+  const b1 = Math.round(38 - dp * 15);
+  const r2 = Math.round(2 - dp * 1);
+  const g2 = Math.round(4 - dp * 2);
+  const b2 = Math.round(14 - dp * 6);
 
-  function makeDrone(freq, vol, detune) {
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    const filter = audioCtx.createBiquadFilter();
-    osc.type = 'sine';
-    osc.frequency.value = freq;
-    osc.detune.value = detune || 0;
-    filter.type = 'lowpass';
-    filter.frequency.value = 400;
-    filter.Q.value = 1;
-    gain.gain.value = vol;
-    osc.connect(filter);
-    filter.connect(gain);
-    gain.connect(master);
-    osc.start();
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, `rgb(${Math.max(0,r1)*globalDim|0},${Math.max(0,g1)*globalDim|0},${Math.max(0,b1)*globalDim|0})`);
+  grad.addColorStop(1, `rgb(${Math.max(0,r2)*globalDim|0},${Math.max(0,g2)*globalDim|0},${Math.max(0,b2)*globalDim|0})`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, W, H);
 
-    // slow LFO on filter
-    const lfo = audioCtx.createOscillator();
-    const lfoGain = audioCtx.createGain();
-    lfo.type = 'sine';
-    lfo.frequency.value = 0.03 + Math.random() * 0.05;
-    lfoGain.gain.value = 100;
-    lfo.connect(lfoGain);
-    lfoGain.connect(filter.frequency);
-    lfo.start();
-
-    return { osc, gain, filter };
-  }
-
-  // layered drones in a peaceful chord
-  makeDrone(55, 0.3, 0);       // A1
-  makeDrone(82.4, 0.2, -3);    // E2
-  makeDrone(110, 0.15, 2);     // A2
-  makeDrone(164.8, 0.08, -5);  // E3
-  makeDrone(220, 0.05, 3);     // A3 (very soft)
-
-  // gentle noise layer (like distant ocean)
-  const bufferSize = audioCtx.sampleRate * 4;
-  const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-  const data = noiseBuffer.getChannelData(0);
-  for (let i = 0; i < bufferSize; i++) {
-    data[i] = (Math.random() * 2 - 1) * 0.5;
-  }
-  const noise = audioCtx.createBufferSource();
-  noise.buffer = noiseBuffer;
-  noise.loop = true;
-  const noiseFilter = audioCtx.createBiquadFilter();
-  noiseFilter.type = 'lowpass';
-  noiseFilter.frequency.value = 180;
-  noiseFilter.Q.value = 0.5;
-  const noiseGain = audioCtx.createGain();
-  noiseGain.gain.value = 0.08;
-  noise.connect(noiseFilter);
-  noiseFilter.connect(noiseGain);
-  noiseGain.connect(master);
-  noise.start();
-
-  // binaural beat (very subtle delta ~2Hz)
-  const binL = audioCtx.createOscillator();
-  const binR = audioCtx.createOscillator();
-  const binGain = audioCtx.createGain();
-  const merger = audioCtx.createChannelMerger(2);
-  binL.frequency.value = 100;
-  binR.frequency.value = 102; // 2Hz delta
-  binL.type = 'sine';
-  binR.type = 'sine';
-  binGain.gain.value = 0.04;
-  binL.connect(merger, 0, 0);
-  binR.connect(merger, 0, 1);
-  merger.connect(binGain);
-  binGain.connect(master);
-  binL.start();
-  binR.start();
+  // vignette
+  const vg = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.25, W/2, H/2, Math.max(W,H)*0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, `rgba(0,0,0,${0.4 + (1-globalDim)*0.5})`);
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
 }
 
-// ─── INTERACTION ───
+// ═══════════════════════════════════════════
+//  INTERACTION
+// ═══════════════════════════════════════════
+let rippleTimer = 0;
 function onPointerMove(e) {
   e.preventDefault();
-  const x = e.clientX || (e.touches && e.touches[0].clientX);
-  const y = e.clientY || (e.touches && e.touches[0].clientY);
-  if (x === undefined) return;
-  mouse.x = x;
-  mouse.y = y;
-  mouse.active = true;
+  const x = e.clientX ?? (e.touches && e.touches[0]?.clientX);
+  const y = e.clientY ?? (e.touches && e.touches[0]?.clientY);
+  if (x == null) return;
+  mouse.x = x; mouse.y = y; mouse.active = true;
   lastInteraction = performance.now();
   mouseTrail.push({ x, y });
   if (mouseTrail.length > CFG.trailLength) mouseTrail.shift();
+  // spawn ripples occasionally
+  rippleTimer++;
+  if (rippleTimer % 12 === 0) {
+    ripples.push(new Ripple(x, y));
+  }
 }
-function onPointerEnd() {
-  mouse.active = false;
-}
+function onPointerEnd() { mouse.active = false; }
 
 canvas.addEventListener('mousemove', onPointerMove);
 canvas.addEventListener('touchmove', onPointerMove, { passive: false });
-canvas.addEventListener('touchstart', onPointerMove, { passive: false });
-canvas.addEventListener('mousedown', () => { mouse.active = true; lastInteraction = performance.now(); });
+canvas.addEventListener('touchstart', (e) => { e.preventDefault(); onPointerMove(e); }, { passive: false });
+canvas.addEventListener('mousedown', (e) => {
+  mouse.active = true; lastInteraction = performance.now();
+  ripples.push(new Ripple(e.clientX, e.clientY));
+});
 canvas.addEventListener('mouseup', onPointerEnd);
 canvas.addEventListener('touchend', onPointerEnd);
 
-// ─── START ───
+// ═══════════════════════════════════════════
+//  START
+// ═══════════════════════════════════════════
 const overlay = document.getElementById('start-overlay');
 function startGame() {
   if (started) return;
   started = true;
   overlay.style.opacity = '0';
-  setTimeout(() => { overlay.style.display = 'none'; }, 2000);
+  setTimeout(() => overlay.style.display = 'none', 3000);
   startTime = performance.now();
   lastInteraction = startTime;
-  initParticles();
-  try { initAudio(); } catch(e) {}
+  // init entities
+  for (let i = 0; i < CFG.particleCount; i++) particles.push(new Particle());
+  for (let i = 0; i < CFG.jellyfishCount; i++) jellyfish.push(new Jellyfish());
+  try { initAudio(); } catch(e) { console.log('Audio init failed:', e); }
   animate();
 }
 overlay.addEventListener('click', startGame);
-overlay.addEventListener('touchstart', startGame);
+overlay.addEventListener('touchstart', startGame, { passive: false });
 
-// ─── MAIN LOOP ───
+// ═══════════════════════════════════════════
+//  MAIN LOOP
+// ═══════════════════════════════════════════
 function animate() {
   requestAnimationFrame(animate);
   const now = performance.now();
   const elapsed = (now - startTime) / 1000;
   const sinceInput = (now - lastInteraction) / 1000;
 
-  // breathing (slows over time)
+  // breathing
   breathCycle = Math.min(CFG.maxBreathCycle, CFG.breathCycleSec + elapsed * CFG.breathSlowRate);
   breathPhase += (Math.PI * 2) / (breathCycle * 60);
   const breathVal = Math.sin(breathPhase) * 0.5 + 0.5;
 
-  // global dimming over time
+  // depth (slow descent over time)
+  depthProgress = Math.min(1, elapsed / (60 * 20));
+
+  // global dimming
   const timeProgress = Math.min(1, Math.max(0, (elapsed / 60 - CFG.fadeStartMin) / (CFG.fullFadeMin - CFG.fadeStartMin)));
-  const timeDim = 1 - timeProgress * 0.7;
-
-  // inactivity dim
+  const timeDim = 1 - timeProgress * 0.75;
   const inactDim = sinceInput > CFG.inactivityFadeSec
-    ? Math.max(0.1, 1 - (sinceInput - CFG.inactivityFadeSec) / 60)
+    ? Math.max(0.08, 1 - (sinceInput - CFG.inactivityFadeSec) / 90)
     : 1;
-
   globalDim = timeDim * inactDim;
 
-  // background
-  const bg = CFG.colors.bg1.map((c, i) => Math.round(c * globalDim * 0.7));
-  ctx.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`;
-  ctx.fillRect(0, 0, W, H);
-
-  // subtle vignette
-  const vg = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.3, W/2, H/2, Math.max(W,H)*0.7);
-  vg.addColorStop(0, 'rgba(0,0,0,0)');
-  vg.addColorStop(1, `rgba(0,0,0,${0.5 + (1-globalDim)*0.4})`);
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, W, H);
-
-  // breathing orb
+  // draw
+  drawBackground();
   drawBreathingOrb(breathVal);
 
   // particles
-  for (const p of particles) {
-    p.update(breathVal);
-    p.draw();
-  }
+  for (const p of particles) { p.update(breathVal); p.draw(); }
+
+  // jellyfish
+  for (const j of jellyfish) { j.update(breathVal); j.draw(); }
+
+  // ripples
+  ripples = ripples.filter(r => { r.draw(); return r.update(); });
 
   // mouse trail
   drawMouseTrail();
-
-  // fade trail
-  if (!mouse.active && mouseTrail.length > 0) {
-    mouseTrail.shift();
-  }
+  if (!mouse.active && mouseTrail.length > 0) mouseTrail.shift();
 }
 </script>
 </body>

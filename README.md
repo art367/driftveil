@@ -1,6 +1,6 @@
-# 🌙 Driftveil — A Sleep Game
+# 🌙 Drift & Flow — A Sleep Game
 
-**Driftveil** is an interactive sleep experience designed to gently guide you into rest. It's not a game you win — it's a game you fall asleep to.
+**Drift & Flow** is an interactive sleep experience designed to gently guide you into rest. It's not a game you win — it's a game you fall asleep to.
 
 ## ✨ Features
 
