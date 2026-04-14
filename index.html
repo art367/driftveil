@@ -267,55 +267,71 @@ function buildAudio() {
   function whaleSong() {
     if (!audioStarted) return;
     const t0 = ac.currentTime;
-    const duration = 6 + Math.random() * 8;
-    // Main voice — long gliding tone
+    const duration = 5 + Math.random() * 6;
+    // Main voice — LOUD gliding moan
     const o1 = ac.createOscillator();
     const g1 = ac.createGain();
     const f1 = ac.createBiquadFilter();
     o1.type = 'sine';
-    const startFreq = 80 + Math.random() * 60;
-    const endFreq = startFreq + (Math.random() > 0.5 ? 1 : -1) * (30 + Math.random() * 50);
+    const startFreq = 90 + Math.random() * 80;
+    const endFreq = startFreq + (Math.random() > 0.5 ? 1 : -1) * (40 + Math.random() * 60);
     o1.frequency.setValueAtTime(startFreq, t0);
-    o1.frequency.linearRampToValueAtTime(endFreq, t0 + duration * 0.6);
-    o1.frequency.linearRampToValueAtTime(startFreq + (endFreq - startFreq) * 0.3, t0 + duration);
-    f1.type = 'lowpass'; f1.frequency.value = 600; f1.Q.value = 2;
-    g1.gain.setValueAtTime(0, t0);
-    g1.gain.linearRampToValueAtTime(0.06 * globalDim, t0 + 2);
-    g1.gain.setValueAtTime(0.06 * globalDim, t0 + duration - 3);
+    o1.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), t0 + duration * 0.5);
+    o1.frequency.exponentialRampToValueAtTime(Math.max(40, startFreq * 0.8), t0 + duration);
+    f1.type = 'lowpass'; f1.frequency.value = 1200; f1.Q.value = 3;
+    g1.gain.setValueAtTime(0.001, t0);
+    g1.gain.linearRampToValueAtTime(0.22, t0 + 1.5);
+    g1.gain.setValueAtTime(0.22, t0 + duration - 2.5);
     g1.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
     o1.connect(f1); f1.connect(g1); g1.connect(comp);
     toReverb(g1);
-    // Harmonic — higher overtone
+    // Harmonic — eerie overtone
     const o2 = ac.createOscillator();
-    const g2 = ac.createGain();
+    const g2a = ac.createGain();
+    const f2 = ac.createBiquadFilter();
     o2.type = 'sine';
     o2.frequency.setValueAtTime(startFreq * 1.5, t0);
-    o2.frequency.linearRampToValueAtTime(endFreq * 1.5, t0 + duration * 0.6);
-    o2.frequency.linearRampToValueAtTime((startFreq + (endFreq - startFreq) * 0.3) * 1.5, t0 + duration);
-    g2.gain.setValueAtTime(0, t0);
-    g2.gain.linearRampToValueAtTime(0.025 * globalDim, t0 + 2.5);
-    g2.gain.exponentialRampToValueAtTime(0.001, t0 + duration - 1);
-    o2.connect(g2); g2.connect(comp);
-    toReverb(g2);
-    // Sub rumble
+    o2.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq * 1.5), t0 + duration * 0.5);
+    o2.frequency.exponentialRampToValueAtTime(Math.max(40, startFreq * 1.2), t0 + duration);
+    f2.type = 'bandpass'; f2.frequency.value = 300; f2.Q.value = 1;
+    g2a.gain.setValueAtTime(0.001, t0);
+    g2a.gain.linearRampToValueAtTime(0.12, t0 + 2);
+    g2a.gain.exponentialRampToValueAtTime(0.001, t0 + duration - 0.5);
+    o2.connect(f2); f2.connect(g2a); g2a.connect(comp);
+    toReverb(g2a);
+    // Second harmonic — higher cry
+    const o2b = ac.createOscillator();
+    const g2b = ac.createGain();
+    o2b.type = 'sine';
+    o2b.frequency.setValueAtTime(startFreq * 3, t0);
+    o2b.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq * 2.5), t0 + duration * 0.4);
+    o2b.frequency.exponentialRampToValueAtTime(Math.max(40, startFreq * 2), t0 + duration);
+    g2b.gain.setValueAtTime(0.001, t0);
+    g2b.gain.linearRampToValueAtTime(0.05, t0 + 2.5);
+    g2b.gain.exponentialRampToValueAtTime(0.001, t0 + duration - 1);
+    o2b.connect(g2b); g2b.connect(comp);
+    toReverb(g2b);
+    // Deep sub rumble you can FEEL
     const o3 = ac.createOscillator();
     const g3 = ac.createGain();
     o3.type = 'sine';
     o3.frequency.value = startFreq * 0.5;
-    g3.gain.setValueAtTime(0, t0);
-    g3.gain.linearRampToValueAtTime(0.04 * globalDim, t0 + 1.5);
+    g3.gain.setValueAtTime(0.001, t0);
+    g3.gain.linearRampToValueAtTime(0.18, t0 + 1);
+    g3.gain.setValueAtTime(0.18, t0 + duration - 2);
     g3.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
     o3.connect(g3); g3.connect(comp);
-    o1.start(t0); o2.start(t0); o3.start(t0);
-    o1.stop(t0 + duration + 1); o2.stop(t0 + duration + 1); o3.stop(t0 + duration + 1);
-    // Occasional second call (response) after a pause
-    if (Math.random() > 0.5) {
-      setTimeout(() => whaleSong(), (duration + 2 + Math.random() * 3) * 1000);
+    o1.start(t0); o2.start(t0); o2b.start(t0); o3.start(t0);
+    o1.stop(t0 + duration + 1); o2.stop(t0 + duration + 1); o2b.stop(t0 + duration + 1); o3.stop(t0 + duration + 1);
+    // Response call
+    if (Math.random() > 0.4) {
+      setTimeout(() => whaleSong(), (duration + 1.5 + Math.random() * 3) * 1000);
     }
-    // Next whale song cycle
-    setTimeout(whaleSong, (duration + 15 + Math.random() * 35) * 1000);
+    // Next whale song cycle — more frequent
+    setTimeout(whaleSong, (duration + 10 + Math.random() * 20) * 1000);
   }
-  setTimeout(whaleSong, 6000);
+  // First whale call comes sooner
+  setTimeout(whaleSong, 3000);
 
   // Sound toggle button
   let muted = false;
@@ -540,31 +556,66 @@ class Ripple {
 //  FISH SHOALS (boid-like schooling)
 // ═══════════════════════════════════════════
 let fishShoals = [];
+let trailPoints = []; // stores finger trail positions for fish to follow
 
 class Fish {
   constructor(shoalIndex) {
     this.shoalIndex = shoalIndex;
     this.x = Math.random() * W;
     this.y = Math.random() * H;
-    this.vx = (Math.random() - 0.5) * 0.8;
-    this.vy = (Math.random() - 0.5) * 0.8;
+    this.vx = (Math.random() - 0.5) * 0.3;
+    this.vy = (Math.random() - 0.5) * 0.3;
     this.size = 3 + Math.random() * 3;
     this.tailPhase = Math.random() * Math.PI * 2;
-    this.tailSpeed = 0.12 + Math.random() * 0.06;
+    this.tailSpeed = 0.1 + Math.random() * 0.06;
     this.alpha = 0.35 + Math.random() * 0.25;
+    this.activated = false;       // only follows trail after being touched
+    this.trailTarget = 0;         // which trail point this fish is heading to
+    this.activatedTimer = 0;      // how long the fish stays activated
   }
   update(shoal) {
     this.tailPhase += this.tailSpeed;
-    const maxSpeed = 1.8;
+    const maxSpeed = this.activated ? 2.2 : 0.8;
 
-    // ── Follow finger (strongest force) ──
-    if (mouse.active) {
+    // ── Check if finger touches this fish's shoal to activate ──
+    if (mouse.active && !this.activated) {
       const dx = mouse.x - this.x, dy = mouse.y - this.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 350) {
-        const pull = (1 - dist / 350) * 0.06;
-        this.vx += dx / dist * pull;
-        this.vy += dy / dist * pull;
+      if (dist < 60) {
+        // Activate entire shoal when any fish in it is touched
+        for (const f of shoal) {
+          f.activated = true;
+          f.activatedTimer = 600 + Math.random() * 300; // ~10-15 seconds
+          f.trailTarget = Math.floor(Math.random() * Math.max(1, trailPoints.length));
+        }
+      }
+    }
+
+    // ── Activated: follow the finger trail ──
+    if (this.activated && trailPoints.length > 2) {
+      this.activatedTimer--;
+      // Pick a trail point to chase (spread fish along the trail)
+      const idx = Math.min(this.trailTarget, trailPoints.length - 1);
+      const tp = trailPoints[idx];
+      if (tp) {
+        const dx = tp.x - this.x, dy = tp.y - this.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist > 5) {
+          const pull = Math.min(0.08, 0.5 / dist) * 2;
+          this.vx += dx * pull;
+          this.vy += dy * pull;
+        }
+        // Once close enough, advance to next trail point
+        if (dist < 15 && this.trailTarget < trailPoints.length - 1) {
+          this.trailTarget++;
+        }
+      }
+      // Tail wags faster when following
+      this.tailSpeed = 0.18 + Math.random() * 0.04;
+      // Deactivate when timer runs out and trail is old
+      if (this.activatedTimer <= 0) {
+        this.activated = false;
+        this.tailSpeed = 0.1 + Math.random() * 0.06;
       }
     }
 
@@ -576,13 +627,10 @@ class Fish {
       const dx = other.x - this.x, dy = other.y - this.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < 80) {
-        // Cohesion — move toward center of neighbors
         cx += other.x; cy += other.y;
-        // Alignment — match velocity
         ax += other.vx; ay += other.vy;
         neighbors++;
-        // Separation — avoid crowding
-        if (dist < 20) {
+        if (dist < 18) {
           sx -= dx / dist * 0.15;
           sy -= dy / dist * 0.15;
         }
@@ -590,27 +638,27 @@ class Fish {
     }
     if (neighbors > 0) {
       cx = cx / neighbors; cy = cy / neighbors;
-      this.vx += (cx - this.x) * 0.003; // cohesion
-      this.vy += (cy - this.y) * 0.003;
-      this.vx += (ax / neighbors - this.vx) * 0.02; // alignment
-      this.vy += (ay / neighbors - this.vy) * 0.02;
+      this.vx += (cx - this.x) * (this.activated ? 0.001 : 0.004);
+      this.vy += (cy - this.y) * (this.activated ? 0.001 : 0.004);
+      this.vx += (ax / neighbors - this.vx) * 0.015;
+      this.vy += (ay / neighbors - this.vy) * 0.015;
     }
-    this.vx += sx; this.vy += sy; // separation
+    this.vx += sx; this.vy += sy;
 
-    // ── Gentle wander ──
-    this.vx += (Math.random() - 0.5) * 0.04;
-    this.vy += (Math.random() - 0.5) * 0.04;
+    // ── Gentle idle wander (when not activated) ──
+    if (!this.activated) {
+      this.vx += (Math.random() - 0.5) * 0.03;
+      this.vy += (Math.random() - 0.5) * 0.03;
+    }
 
     // Speed limit
     const spd = Math.sqrt(this.vx * this.vx + this.vy * this.vy);
     if (spd > maxSpeed) { this.vx = (this.vx / spd) * maxSpeed; this.vy = (this.vy / spd) * maxSpeed; }
 
-    // Friction
-    this.vx *= 0.995; this.vy *= 0.995;
-
+    this.vx *= 0.993; this.vy *= 0.993;
     this.x += this.vx; this.y += this.vy;
 
-    // Wrap edges softly
+    // Wrap edges
     const margin = 40;
     if (this.x < -margin) this.x = W + margin;
     if (this.x > W + margin) this.x = -margin;
@@ -621,8 +669,11 @@ class Fish {
     const a = this.alpha * globalDim;
     if (a < 0.005) return;
     const angle = Math.atan2(this.vy, this.vx);
-    const tailWag = Math.sin(this.tailPhase) * 0.35;
+    const tailWag = Math.sin(this.tailPhase) * 0.4;
     const s = this.size;
+    const hue = 195 + this.shoalIndex * 30;
+    // Glow brighter when activated
+    const glowBoost = this.activated ? 1.5 : 1;
 
     ctx.save();
     ctx.translate(this.x, this.y);
@@ -631,13 +682,13 @@ class Fish {
     // Body glow
     ctx.beginPath();
     ctx.arc(0, 0, s * 2.5, 0, Math.PI * 2);
-    ctx.fillStyle = `hsla(${195 + this.shoalIndex * 30}, 80%, 70%, ${a * 0.06})`;
+    ctx.fillStyle = `hsla(${hue}, 80%, 70%, ${a * 0.07 * glowBoost})`;
     ctx.fill();
 
     // Body
     ctx.beginPath();
     ctx.ellipse(0, 0, s, s * 0.45, 0, 0, Math.PI * 2);
-    ctx.fillStyle = `hsla(${195 + this.shoalIndex * 30}, 75%, 75%, ${a * 0.7})`;
+    ctx.fillStyle = `hsla(${hue}, 75%, ${70 + (this.activated ? 10 : 0)}%, ${a * 0.7})`;
     ctx.fill();
 
     // Tail
@@ -646,10 +697,10 @@ class Fish {
     ctx.lineTo(-s * 1.6, s * 0.5 + tailWag * s * 0.3);
     ctx.lineTo(-s * 1.6, -s * 0.5 + tailWag * s * 0.3);
     ctx.closePath();
-    ctx.fillStyle = `hsla(${195 + this.shoalIndex * 30}, 70%, 70%, ${a * 0.5})`;
+    ctx.fillStyle = `hsla(${hue}, 70%, 70%, ${a * 0.5})`;
     ctx.fill();
 
-    // Eye dot
+    // Eye
     ctx.beginPath();
     ctx.arc(s * 0.4, -s * 0.08, s * 0.12, 0, Math.PI * 2);
     ctx.fillStyle = `hsla(190, 100%, 90%, ${a * 0.8})`;
@@ -677,6 +728,24 @@ function initFish() {
 }
 
 function updateAndDrawFish() {
+  // Maintain trail points from finger path
+  if (mouse.active && mouseTrail.length > 0) {
+    const last = mouseTrail[mouseTrail.length - 1];
+    // Add point if moved enough from last trail point
+    if (trailPoints.length === 0 ||
+        Math.abs(last.x - trailPoints[trailPoints.length-1].x) > 8 ||
+        Math.abs(last.y - trailPoints[trailPoints.length-1].y) > 8) {
+      trailPoints.push({ x: last.x, y: last.y, age: 0 });
+    }
+  }
+  // Age and remove old trail points (fade after ~8 seconds)
+  for (let i = trailPoints.length - 1; i >= 0; i--) {
+    trailPoints[i].age++;
+    if (trailPoints[i].age > 480) { trailPoints.splice(i, 1); }
+  }
+  // Cap trail length
+  if (trailPoints.length > 200) trailPoints.splice(0, trailPoints.length - 200);
+
   for (const shoal of fishShoals) {
     for (const f of shoal) { f.update(shoal); }
     for (const f of shoal) { f.draw(); }
