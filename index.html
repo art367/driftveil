@@ -264,74 +264,100 @@ function buildAudio() {
   setTimeout(singingBowl, 10000);
 
   // ─── WHALE SONG (frequency sweeps + harmonics) ───
+  // ─── WHALE SONG — designed for phone speakers (200Hz+) ───
+  // Phone speakers can't reproduce below ~200Hz, so we use
+  // higher frequencies with pitch sweeps to create the whale effect
   function whaleSong() {
     if (!audioStarted) return;
     const t0 = ac.currentTime;
-    const duration = 5 + Math.random() * 6;
-    // Main voice — LOUD gliding moan
+    const duration = 4 + Math.random() * 5;
+
+    // Whale song has its own gain bus so it cuts through
+    const whaleBus = ac.createGain();
+    whaleBus.gain.value = 1.0;
+    whaleBus.connect(ac.destination); // bypass compressor — direct to speakers
+
+    // Main cry — HIGH enough for phone speakers (250-500Hz range)
     const o1 = ac.createOscillator();
     const g1 = ac.createGain();
-    const f1 = ac.createBiquadFilter();
     o1.type = 'sine';
-    const startFreq = 90 + Math.random() * 80;
-    const endFreq = startFreq + (Math.random() > 0.5 ? 1 : -1) * (40 + Math.random() * 60);
+    const startFreq = 250 + Math.random() * 150;
+    const peakFreq = startFreq + (Math.random() > 0.5 ? 1 : -1) * (80 + Math.random() * 120);
     o1.frequency.setValueAtTime(startFreq, t0);
-    o1.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq), t0 + duration * 0.5);
-    o1.frequency.exponentialRampToValueAtTime(Math.max(40, startFreq * 0.8), t0 + duration);
-    f1.type = 'lowpass'; f1.frequency.value = 1200; f1.Q.value = 3;
+    o1.frequency.linearRampToValueAtTime(peakFreq, t0 + duration * 0.35);
+    o1.frequency.linearRampToValueAtTime(startFreq * 0.85, t0 + duration * 0.7);
+    o1.frequency.linearRampToValueAtTime(startFreq * 0.6, t0 + duration);
     g1.gain.setValueAtTime(0.001, t0);
-    g1.gain.linearRampToValueAtTime(0.22, t0 + 1.5);
-    g1.gain.setValueAtTime(0.22, t0 + duration - 2.5);
-    g1.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
-    o1.connect(f1); f1.connect(g1); g1.connect(comp);
+    g1.gain.linearRampToValueAtTime(0.35, t0 + 1);
+    g1.gain.setValueAtTime(0.35, t0 + duration - 2);
+    g1.gain.linearRampToValueAtTime(0.001, t0 + duration);
+    o1.connect(g1); g1.connect(whaleBus);
     toReverb(g1);
-    // Harmonic — eerie overtone
+
+    // Eerie high harmonic (500-1000Hz — very audible on phones)
     const o2 = ac.createOscillator();
-    const g2a = ac.createGain();
-    const f2 = ac.createBiquadFilter();
+    const g2 = ac.createGain();
     o2.type = 'sine';
-    o2.frequency.setValueAtTime(startFreq * 1.5, t0);
-    o2.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq * 1.5), t0 + duration * 0.5);
-    o2.frequency.exponentialRampToValueAtTime(Math.max(40, startFreq * 1.2), t0 + duration);
-    f2.type = 'bandpass'; f2.frequency.value = 300; f2.Q.value = 1;
-    g2a.gain.setValueAtTime(0.001, t0);
-    g2a.gain.linearRampToValueAtTime(0.12, t0 + 2);
-    g2a.gain.exponentialRampToValueAtTime(0.001, t0 + duration - 0.5);
-    o2.connect(f2); f2.connect(g2a); g2a.connect(comp);
-    toReverb(g2a);
-    // Second harmonic — higher cry
-    const o2b = ac.createOscillator();
-    const g2b = ac.createGain();
-    o2b.type = 'sine';
-    o2b.frequency.setValueAtTime(startFreq * 3, t0);
-    o2b.frequency.exponentialRampToValueAtTime(Math.max(40, endFreq * 2.5), t0 + duration * 0.4);
-    o2b.frequency.exponentialRampToValueAtTime(Math.max(40, startFreq * 2), t0 + duration);
-    g2b.gain.setValueAtTime(0.001, t0);
-    g2b.gain.linearRampToValueAtTime(0.05, t0 + 2.5);
-    g2b.gain.exponentialRampToValueAtTime(0.001, t0 + duration - 1);
-    o2b.connect(g2b); g2b.connect(comp);
-    toReverb(g2b);
-    // Deep sub rumble you can FEEL
+    o2.frequency.setValueAtTime(startFreq * 2, t0);
+    o2.frequency.linearRampToValueAtTime(peakFreq * 2.2, t0 + duration * 0.3);
+    o2.frequency.linearRampToValueAtTime(startFreq * 1.5, t0 + duration * 0.65);
+    o2.frequency.linearRampToValueAtTime(startFreq * 1.2, t0 + duration);
+    g2.gain.setValueAtTime(0.001, t0);
+    g2.gain.linearRampToValueAtTime(0.18, t0 + 1.5);
+    g2.gain.linearRampToValueAtTime(0.001, t0 + duration - 0.5);
+    o2.connect(g2); g2.connect(whaleBus);
+    toReverb(g2);
+
+    // Wailing overtone (800-1500Hz — the haunting part)
     const o3 = ac.createOscillator();
     const g3 = ac.createGain();
     o3.type = 'sine';
-    o3.frequency.value = startFreq * 0.5;
+    o3.frequency.setValueAtTime(startFreq * 3.5, t0 + 0.5);
+    o3.frequency.linearRampToValueAtTime(peakFreq * 3, t0 + duration * 0.4);
+    o3.frequency.linearRampToValueAtTime(startFreq * 2.5, t0 + duration);
     g3.gain.setValueAtTime(0.001, t0);
-    g3.gain.linearRampToValueAtTime(0.18, t0 + 1);
-    g3.gain.setValueAtTime(0.18, t0 + duration - 2);
-    g3.gain.exponentialRampToValueAtTime(0.001, t0 + duration);
-    o3.connect(g3); g3.connect(comp);
-    o1.start(t0); o2.start(t0); o2b.start(t0); o3.start(t0);
-    o1.stop(t0 + duration + 1); o2.stop(t0 + duration + 1); o2b.stop(t0 + duration + 1); o3.stop(t0 + duration + 1);
+    g3.gain.linearRampToValueAtTime(0.08, t0 + 2);
+    g3.gain.linearRampToValueAtTime(0.001, t0 + duration - 1);
+    o3.connect(g3); g3.connect(whaleBus);
+    toReverb(g3);
+
+    // Breathy texture — filtered noise burst
+    const nLen = ac.sampleRate * duration;
+    const nBuf = ac.createBuffer(1, nLen, ac.sampleRate);
+    const nData = nBuf.getChannelData(0);
+    let nv = 0;
+    for (let i = 0; i < nLen; i++) {
+      nv = (nv + (Math.random() * 2 - 1) * 0.03) * 0.997;
+      nData[i] = nv * 15;
+    }
+    const nSrc = ac.createBufferSource();
+    nSrc.buffer = nBuf;
+    const nFilt = ac.createBiquadFilter();
+    nFilt.type = 'bandpass';
+    nFilt.frequency.value = startFreq * 1.5;
+    nFilt.Q.value = 5;
+    const nGain = ac.createGain();
+    nGain.gain.setValueAtTime(0.001, t0);
+    nGain.gain.linearRampToValueAtTime(0.12, t0 + 1);
+    nGain.gain.linearRampToValueAtTime(0.001, t0 + duration);
+    nSrc.connect(nFilt); nFilt.connect(nGain); nGain.connect(whaleBus);
+
+    o1.start(t0); o2.start(t0); o3.start(t0); nSrc.start(t0);
+    o1.stop(t0 + duration + 0.5); o2.stop(t0 + duration + 0.5);
+    o3.stop(t0 + duration + 0.5); nSrc.stop(t0 + duration + 0.5);
+
+    // Clean up whale bus after sound ends
+    setTimeout(() => { try { whaleBus.disconnect(); } catch(e) {} }, (duration + 2) * 1000);
+
     // Response call
     if (Math.random() > 0.4) {
-      setTimeout(() => whaleSong(), (duration + 1.5 + Math.random() * 3) * 1000);
+      setTimeout(whaleSong, (duration + 2 + Math.random() * 4) * 1000);
     }
-    // Next whale song cycle — more frequent
-    setTimeout(whaleSong, (duration + 10 + Math.random() * 20) * 1000);
+    // Next cycle
+    setTimeout(whaleSong, (duration + 8 + Math.random() * 15) * 1000);
   }
-  // First whale call comes sooner
-  setTimeout(whaleSong, 3000);
+  // First whale call — almost immediately after tap
+  setTimeout(whaleSong, 1500);
 
   // Sound toggle button
   let muted = false;
