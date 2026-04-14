@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Driftveil — A Sleep Game</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #000; cursor: none; }
+  canvas { display: block; position: fixed; top: 0; left: 0; }
+  #start-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: radial-gradient(ellipse at center, #0a1628 0%, #000 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    z-index: 100; transition: opacity 2s ease-out;
+    font-family: 'Georgia', serif; color: rgba(180, 200, 230, 0.7);
+  }
+  #start-overlay h1 {
+    font-size: 3em; font-weight: 300; letter-spacing: 0.3em;
+    margin-bottom: 0.5em; opacity: 0;
+    animation: fadeIn 3s ease-out 0.5s forwards;
+    color: rgba(160, 190, 230, 0.6);
+  }
+  #start-overlay p {
+    font-size: 1.1em; letter-spacing: 0.15em; opacity: 0;
+    animation: fadeIn 3s ease-out 2s forwards;
+    color: rgba(140, 170, 210, 0.4);
+  }
+  #start-overlay .tap-hint {
+    margin-top: 3em; font-size: 0.85em; opacity: 0;
+    animation: fadeIn 3s ease-out 3.5s forwards, pulse 4s ease-in-out 3.5s infinite;
+    color: rgba(120, 160, 200, 0.3);
+  }
+  @keyframes fadeIn { to { opacity: 1; } }
+  @keyframes pulse { 0%,100% { opacity: 0.3; } 50% { opacity: 0.6; } }
+</style>
+</head>
+<body>
+<div id="start-overlay">
+  <h1>DRIFTVEIL</h1>
+  <p>a place to let go</p>
+  <p class="tap-hint">touch anywhere to begin</p>
+</div>
+<canvas id="c"></canvas>
+<script>
+// ─── CONFIG ───
+const CFG = {
+  particleCount: 120,
+  trailLength: 18,
+  breathCycleSec: 6,       // initial breath cycle
+  breathSlowRate: 0.0003,  // how much breath slows per frame
+  maxBreathCycle: 12,
+  fadeStartMin: 3,         // minutes before world starts dimming
+  fullFadeMin: 15,         // minutes to reach near-darkness
+  inactivityFadeSec: 30,   // seconds of no input before auto-dim
+  cursorGlow: 80,
+  driftSpeed: 0.15,
+  colors: {
+    bg1: [8, 16, 38],
+    bg2: [2, 4, 12],
+    particle: [130, 180, 255],
+    accent: [100, 200, 220],
+    warm: [180, 140, 255],
+  }
+};
+
+// ─── STATE ───
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+let mouse = { x: -1000, y: -1000, active: false };
+let mouseTrail = [];
+let particles = [];
+let startTime = 0;
+let lastInteraction = 0;
+let breathPhase = 0;
+let breathCycle = CFG.breathCycleSec;
+let globalDim = 1;
+let started = false;
+let audioCtx = null;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// ─── PARTICLES ───
+class Particle {
+  constructor() { this.reset(); }
+  reset() {
+    this.x = Math.random() * W;
+    this.y = Math.random() * H;
+    this.baseSize = 1 + Math.random() * 3;
+    this.size = this.baseSize;
+    this.vx = (Math.random() - 0.5) * CFG.driftSpeed;
+    this.vy = (Math.random() - 0.5) * CFG.driftSpeed - 0.05;
+    this.alpha = 0.1 + Math.random() * 0.4;
+    this.baseAlpha = this.alpha;
+    this.pulseOffset = Math.random() * Math.PI * 2;
+    this.pulseSpeed = 0.005 + Math.random() * 0.01;
+    this.colorType = Math.random();
+    this.trail = [];
+  }
+  getColor(a) {
+    let c;
+    if (this.colorType < 0.5) c = CFG.colors.particle;
+    else if (this.colorType < 0.8) c = CFG.colors.accent;
+    else c = CFG.colors.warm;
+    return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+  }
+  update(breathVal) {
+    // gentle drift
+    this.x += this.vx;
+    this.y += this.vy;
+    // wrap
+    if (this.x < -20) this.x = W + 20;
+    if (this.x > W + 20) this.x = -20;
+    if (this.y < -20) this.y = H + 20;
+    if (this.y > H + 20) this.y = -20;
+
+    // mouse attraction (gentle)
+    if (mouse.active) {
+      const dx = mouse.x - this.x;
+      const dy = mouse.y - this.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 250) {
+        const force = (1 - dist / 250) * 0.008;
+        this.vx += dx * force;
+        this.vy += dy * force;
+      }
+    }
+    // friction
+    this.vx *= 0.995;
+    this.vy *= 0.995;
+
+    // breathing pulse
+    const pulse = Math.sin(breathPhase + this.pulseOffset) * 0.5 + 0.5;
+    this.size = this.baseSize * (0.7 + pulse * 0.6 + breathVal * 0.3);
+    this.alpha = this.baseAlpha * (0.5 + pulse * 0.5) * globalDim;
+
+    // trail
+    this.trail.push({ x: this.x, y: this.y, a: this.alpha * 0.3 });
+    if (this.trail.length > 6) this.trail.shift();
+  }
+  draw() {
+    // trail
+    for (let i = 0; i < this.trail.length; i++) {
+      const t = this.trail[i];
+      const a = t.a * (i / this.trail.length) * 0.3 * globalDim;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, this.size * 0.5, 0, Math.PI * 2);
+      ctx.fillStyle = this.getColor(a);
+      ctx.fill();
+    }
+    // main
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+    ctx.fillStyle = this.getColor(this.alpha);
+    ctx.shadowColor = this.getColor(this.alpha * 0.5);
+    ctx.shadowBlur = this.size * 4;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+}
+
+function initParticles() {
+  particles = [];
+  for (let i = 0; i < CFG.particleCount; i++) {
+    particles.push(new Particle());
+  }
+}
+
+// ─── MOUSE TRAIL ───
+function drawMouseTrail() {
+  if (mouseTrail.length < 2) return;
+  for (let i = 1; i < mouseTrail.length; i++) {
+    const p = mouseTrail[i];
+    const prev = mouseTrail[i - 1];
+    const t = i / mouseTrail.length;
+    const a = t * 0.4 * globalDim;
+    const w = t * 12;
+    ctx.beginPath();
+    ctx.moveTo(prev.x, prev.y);
+    ctx.lineTo(p.x, p.y);
+    ctx.strokeStyle = `rgba(150, 200, 255, ${a})`;
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.stroke();
+    // glow
+    ctx.strokeStyle = `rgba(100, 180, 255, ${a * 0.3})`;
+    ctx.lineWidth = w * 3;
+    ctx.stroke();
+  }
+  // cursor glow
+  if (mouse.active) {
+    const g = ctx.createRadialGradient(mouse.x, mouse.y, 0, mouse.x, mouse.y, CFG.cursorGlow);
+    g.addColorStop(0, `rgba(140, 190, 255, ${0.15 * globalDim})`);
+    g.addColorStop(1, 'rgba(140, 190, 255, 0)');
+    ctx.beginPath();
+    ctx.arc(mouse.x, mouse.y, CFG.cursorGlow, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+}
+
+// ─── BREATHING ORB ───
+function drawBreathingOrb(breathVal) {
+  const cx = W / 2;
+  const cy = H / 2;
+  const baseR = Math.min(W, H) * 0.12;
+  const r = baseR * (0.8 + breathVal * 0.4);
+  const a = (0.03 + breathVal * 0.04) * globalDim;
+
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  g.addColorStop(0, `rgba(100, 160, 230, ${a})`);
+  g.addColorStop(0.5, `rgba(80, 130, 200, ${a * 0.4})`);
+  g.addColorStop(1, 'rgba(60, 100, 180, 0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fillStyle = g;
+  ctx.fill();
+
+  // outer ring
+  ctx.beginPath();
+  ctx.arc(cx, cy, r * 1.2, 0, Math.PI * 2);
+  ctx.strokeStyle = `rgba(120, 170, 240, ${a * 0.3})`;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+// ─── DEEP AMBIENT AUDIO (Web Audio API) ───
+function initAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const master = audioCtx.createGain();
+  master.gain.value = 0;
+  master.connect(audioCtx.destination);
+  // fade in
+  master.gain.linearRampToValueAtTime(0.25, audioCtx.currentTime + 4);
+
+  function makeDrone(freq, vol, detune) {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    const filter = audioCtx.createBiquadFilter();
+    osc.type = 'sine';
+    osc.frequency.value = freq;
+    osc.detune.value = detune || 0;
+    filter.type = 'lowpass';
+    filter.frequency.value = 400;
+    filter.Q.value = 1;
+    gain.gain.value = vol;
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    osc.start();
+
+    // slow LFO on filter
+    const lfo = audioCtx.createOscillator();
+    const lfoGain = audioCtx.createGain();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.03 + Math.random() * 0.05;
+    lfoGain.gain.value = 100;
+    lfo.connect(lfoGain);
+    lfoGain.connect(filter.frequency);
+    lfo.start();
+
+    return { osc, gain, filter };
+  }
+
+  // layered drones in a peaceful chord
+  makeDrone(55, 0.3, 0);       // A1
+  makeDrone(82.4, 0.2, -3);    // E2
+  makeDrone(110, 0.15, 2);     // A2
+  makeDrone(164.8, 0.08, -5);  // E3
+  makeDrone(220, 0.05, 3);     // A3 (very soft)
+
+  // gentle noise layer (like distant ocean)
+  const bufferSize = audioCtx.sampleRate * 4;
+  const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const data = noiseBuffer.getChannelData(0);
+  for (let i = 0; i < bufferSize; i++) {
+    data[i] = (Math.random() * 2 - 1) * 0.5;
+  }
+  const noise = audioCtx.createBufferSource();
+  noise.buffer = noiseBuffer;
+  noise.loop = true;
+  const noiseFilter = audioCtx.createBiquadFilter();
+  noiseFilter.type = 'lowpass';
+  noiseFilter.frequency.value = 180;
+  noiseFilter.Q.value = 0.5;
+  const noiseGain = audioCtx.createGain();
+  noiseGain.gain.value = 0.08;
+  noise.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(master);
+  noise.start();
+
+  // binaural beat (very subtle delta ~2Hz)
+  const binL = audioCtx.createOscillator();
+  const binR = audioCtx.createOscillator();
+  const binGain = audioCtx.createGain();
+  const merger = audioCtx.createChannelMerger(2);
+  binL.frequency.value = 100;
+  binR.frequency.value = 102; // 2Hz delta
+  binL.type = 'sine';
+  binR.type = 'sine';
+  binGain.gain.value = 0.04;
+  binL.connect(merger, 0, 0);
+  binR.connect(merger, 0, 1);
+  merger.connect(binGain);
+  binGain.connect(master);
+  binL.start();
+  binR.start();
+}
+
+// ─── INTERACTION ───
+function onPointerMove(e) {
+  e.preventDefault();
+  const x = e.clientX || (e.touches && e.touches[0].clientX);
+  const y = e.clientY || (e.touches && e.touches[0].clientY);
+  if (x === undefined) return;
+  mouse.x = x;
+  mouse.y = y;
+  mouse.active = true;
+  lastInteraction = performance.now();
+  mouseTrail.push({ x, y });
+  if (mouseTrail.length > CFG.trailLength) mouseTrail.shift();
+}
+function onPointerEnd() {
+  mouse.active = false;
+}
+
+canvas.addEventListener('mousemove', onPointerMove);
+canvas.addEventListener('touchmove', onPointerMove, { passive: false });
+canvas.addEventListener('touchstart', onPointerMove, { passive: false });
+canvas.addEventListener('mousedown', () => { mouse.active = true; lastInteraction = performance.now(); });
+canvas.addEventListener('mouseup', onPointerEnd);
+canvas.addEventListener('touchend', onPointerEnd);
+
+// ─── START ───
+const overlay = document.getElementById('start-overlay');
+function startGame() {
+  if (started) return;
+  started = true;
+  overlay.style.opacity = '0';
+  setTimeout(() => { overlay.style.display = 'none'; }, 2000);
+  startTime = performance.now();
+  lastInteraction = startTime;
+  initParticles();
+  try { initAudio(); } catch(e) {}
+  animate();
+}
+overlay.addEventListener('click', startGame);
+overlay.addEventListener('touchstart', startGame);
+
+// ─── MAIN LOOP ───
+function animate() {
+  requestAnimationFrame(animate);
+  const now = performance.now();
+  const elapsed = (now - startTime) / 1000;
+  const sinceInput = (now - lastInteraction) / 1000;
+
+  // breathing (slows over time)
+  breathCycle = Math.min(CFG.maxBreathCycle, CFG.breathCycleSec + elapsed * CFG.breathSlowRate);
+  breathPhase += (Math.PI * 2) / (breathCycle * 60);
+  const breathVal = Math.sin(breathPhase) * 0.5 + 0.5;
+
+  // global dimming over time
+  const timeProgress = Math.min(1, Math.max(0, (elapsed / 60 - CFG.fadeStartMin) / (CFG.fullFadeMin - CFG.fadeStartMin)));
+  const timeDim = 1 - timeProgress * 0.7;
+
+  // inactivity dim
+  const inactDim = sinceInput > CFG.inactivityFadeSec
+    ? Math.max(0.1, 1 - (sinceInput - CFG.inactivityFadeSec) / 60)
+    : 1;
+
+  globalDim = timeDim * inactDim;
+
+  // background
+  const bg = CFG.colors.bg1.map((c, i) => Math.round(c * globalDim * 0.7));
+  ctx.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // subtle vignette
+  const vg = ctx.createRadialGradient(W/2, H/2, Math.min(W,H)*0.3, W/2, H/2, Math.max(W,H)*0.7);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, `rgba(0,0,0,${0.5 + (1-globalDim)*0.4})`);
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, W, H);
+
+  // breathing orb
+  drawBreathingOrb(breathVal);
+
+  // particles
+  for (const p of particles) {
+    p.update(breathVal);
+    p.draw();
+  }
+
+  // mouse trail
+  drawMouseTrail();
+
+  // fade trail
+  if (!mouse.active && mouseTrail.length > 0) {
+    mouseTrail.shift();
+  }
+}
+</script>
+</body>
+</html>
